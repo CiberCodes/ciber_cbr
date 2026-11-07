@@ -1,0 +1,28 @@
+# 🦀 Rust
+# Ignore the build directory containing heavy compiled binaries
+/target/
+Cargo.lock
+
+# NOTE: Cargo.lock is usually NOT ignored in workspaces
+# to ensure CI tests the exact same dependency versions.
+
+# 🖥️ IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ⚙️ Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 📦 Logs and Crash Reports
+*.log
+*.log.*
+*.old

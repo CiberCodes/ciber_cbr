@@ -1,0 +1,121 @@
+[package]
+name = "ciber_cbr"
+version = "0.1.0"
+edition = "2024"
+authors = ["CiberCodes <tuliosouza0803@gmail.com>"]
+description = "CBR data format parser, formatter, and document handling library"
+repository = "https://github.com/CiberCodes/ciber_cbr"
+documentation = "https://docs.rs/ciber_cbr"
+readme = "README.md"
+license = "MIT or Apache-2.0"
+keywords = ["cbr", "data-format", "parser", "formatter", "serialization"]
+categories = ["encoding", "parser-implementations"]
+
+[dependencies]
+sha2 = { version = "0.11.1", optional = true }
+subtle = { version = "2.6.1", optional = true }
+hkdf = { version = "0.13.0", optional = true }
+getrandom = { version = "0.4.3", optional = true }
+aes-gcm = { version = "0.11.1", optional = true }
+
+serde = {
+  version = "1.0.229",
+  default-features = false,
+  features = ["derive", "alloc"],
+  optional = true
+}
+
+[features]
+default = []
+serde = ["dep:serde"]
+crypto = [
+  "dep:sha2",
+  "dep:subtle",
+  "dep:getrandom",
+  "dep:hkdf",
+  "dep:aes-gcm",
+]
+full = ["serde", "crypto"]
+
+[lints.rust]
+unsafe_code = "warn"
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+pedantic = "warn"
+nursery = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[[test]]
+name = "hash"
+path = "tests/crypto/hash.rs"
+required-features = ["crypto"]
+
+[[test]]
+name = "key"
+path = "tests/crypto/key.rs"
+required-features = ["crypto"]
+
+[[test]]
+name = "cipher"
+path = "tests/crypto/cipher.rs"
+required-features = ["crypto"]
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+required-features = ["crypto"]
+
+[[example]]
+name = "read"
+path = "examples/file/read.rs"
+
+[[example]]
+name = "write"
+path = "examples/file/write.rs"
+
+[[example]]
+name = "formatting"
+path = "examples/file/formatting.rs"
+
+[[example]]
+name = "primitives"
+path = "examples/value/primitives.rs"
+
+[[example]]
+name = "arrays"
+path = "examples/value/arrays.rs"
+
+[[example]]
+name = "objects"
+path = "examples/value/objects.rs"
+
+[[example]]
+name = "sets"
+path = "examples/value/sets.rs"
+
+[[example]]
+name = "hashing"
+path = "examples/crypto/hashing.rs"
+required-features = ["crypto"]
+
+[[example]]
+name = "key_generation"
+path = "examples/crypto/key_generation.rs"
+required-features = ["crypto"]
+
+[[example]]
+name = "key_derivation"
+path = "examples/crypto/key_derivation.rs"
+required-features = ["crypto"]
+
+[[example]]
+name = "encryption"
+path = "examples/crypto/encryption.rs"
+required-features = ["crypto"]
