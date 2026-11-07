@@ -7,8 +7,8 @@
 //! and authentication tag.
 
 use aes_gcm::{
-    Aes256Gcm, KeyInit,
-    aead::{Aead, Payload},
+  Aes256Gcm, KeyInit,
+  aead::{Aead, Payload},
 };
 
 use super::error::{CryptoError, CryptoResult};
@@ -40,32 +40,32 @@ pub const TAG_SIZE: usize = 16;
 /// Returns an error if the key is invalid, nonce generation fails,
 /// or encryption cannot be completed.
 pub fn encrypt(
-    key: &[u8],
-    plaintext: &[u8],
-    aad: &[u8],
+  key: &[u8],
+  plaintext: &[u8],
+  aad: &[u8],
 ) -> CryptoResult<Vec<u8>> {
-    let cipher =
-        Aes256Gcm::new_from_slice(key).map_err(|_| CryptoError::InvalidKey)?;
+  let cipher =
+    Aes256Gcm::new_from_slice(key).map_err(|_| CryptoError::InvalidKey)?;
 
-    let mut nonce_bytes = [0u8; NONCE_SIZE];
+  let mut nonce_bytes = [0u8; NONCE_SIZE];
 
-    getrandom::fill(&mut nonce_bytes)
-        .map_err(|_| CryptoError::EncryptionFailed)?;
+  getrandom::fill(&mut nonce_bytes)
+    .map_err(|_| CryptoError::EncryptionFailed)?;
 
-    let nonce = aes_gcm::Nonce::from(nonce_bytes);
+  let nonce = aes_gcm::Nonce::from(nonce_bytes);
 
-    let payload = Payload { msg: plaintext, aad };
+  let payload = Payload { msg: plaintext, aad };
 
-    let ciphertext = cipher
-        .encrypt(&nonce, payload)
-        .map_err(|_| CryptoError::EncryptionFailed)?;
+  let ciphertext = cipher
+    .encrypt(&nonce, payload)
+    .map_err(|_| CryptoError::EncryptionFailed)?;
 
-    let mut output = Vec::with_capacity(NONCE_SIZE + ciphertext.len());
+  let mut output = Vec::with_capacity(NONCE_SIZE + ciphertext.len());
 
-    output.extend_from_slice(&nonce_bytes);
-    output.extend_from_slice(&ciphertext);
+  output.extend_from_slice(&nonce_bytes);
+  output.extend_from_slice(&ciphertext);
 
-    Ok(output)
+  Ok(output)
 }
 
 /// Decrypts data previously encrypted using AES-256-GCM.
@@ -88,25 +88,25 @@ pub fn encrypt(
 /// Returns an error if the key is invalid, the input is too short,
 /// or authentication verification fails.
 pub fn decrypt(
-    key: &[u8],
-    ciphertext: &[u8],
-    aad: &[u8],
+  key: &[u8],
+  ciphertext: &[u8],
+  aad: &[u8],
 ) -> CryptoResult<Vec<u8>> {
-    if ciphertext.len() < NONCE_SIZE + TAG_SIZE {
-        return Err(CryptoError::InvalidInput);
-    }
+  if ciphertext.len() < NONCE_SIZE + TAG_SIZE {
+    return Err(CryptoError::InvalidInput);
+  }
 
-    let cipher =
-        Aes256Gcm::new_from_slice(key).map_err(|_| CryptoError::InvalidKey)?;
+  let cipher =
+    Aes256Gcm::new_from_slice(key).map_err(|_| CryptoError::InvalidKey)?;
 
-    let (nonce_bytes, encrypted_data) = ciphertext.split_at(NONCE_SIZE);
+  let (nonce_bytes, encrypted_data) = ciphertext.split_at(NONCE_SIZE);
 
-    let nonce_array: [u8; NONCE_SIZE] =
-        nonce_bytes.try_into().map_err(|_| CryptoError::InvalidNonce)?;
+  let nonce_array: [u8; NONCE_SIZE] =
+    nonce_bytes.try_into().map_err(|_| CryptoError::InvalidNonce)?;
 
-    let nonce = aes_gcm::Nonce::from(nonce_array);
+  let nonce = aes_gcm::Nonce::from(nonce_array);
 
-    let payload = Payload { msg: encrypted_data, aad };
+  let payload = Payload { msg: encrypted_data, aad };
 
-    cipher.decrypt(&nonce, payload).map_err(|_| CryptoError::DecryptionFailed)
+  cipher.decrypt(&nonce, payload).map_err(|_| CryptoError::DecryptionFailed)
 }

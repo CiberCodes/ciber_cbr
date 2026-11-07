@@ -25,11 +25,11 @@ pub const KEY_SIZE: usize = 32;
 /// Returns [`CryptoError::InvalidInput`] if the random
 /// number generator fails.
 pub fn generate_key() -> CryptoResult<[u8; KEY_SIZE]> {
-    let mut key = [0u8; KEY_SIZE];
+  let mut key = [0u8; KEY_SIZE];
 
-    getrandom::fill(&mut key).map_err(|_| CryptoError::InvalidInput)?;
+  getrandom::fill(&mut key).map_err(|_| CryptoError::InvalidInput)?;
 
-    Ok(key)
+  Ok(key)
 }
 
 /// Derives a cryptographic key using HKDF-SHA256.
@@ -48,19 +48,18 @@ pub fn generate_key() -> CryptoResult<[u8; KEY_SIZE]> {
 ///
 /// Returns [`CryptoError::KeyDerivationFailed`] if key derivation fails.
 pub fn derive_key(
-    secret: &[u8],
-    salt: Option<&[u8]>,
-    info: &[u8],
+  secret: &[u8],
+  salt: Option<&[u8]>,
+  info: &[u8],
 ) -> CryptoResult<[u8; KEY_SIZE]> {
-    if secret.is_empty() {
-        return Err(CryptoError::InvalidInput);
-    }
+  if secret.is_empty() {
+    return Err(CryptoError::InvalidInput);
+  }
 
-    let hkdf = Hkdf::<Sha256>::new(salt, secret);
-    let mut key = [0u8; KEY_SIZE];
+  let hkdf = Hkdf::<Sha256>::new(salt, secret);
+  let mut key = [0u8; KEY_SIZE];
 
-    hkdf.expand(info, &mut key)
-        .map_err(|_| CryptoError::KeyDerivationFailed)?;
+  hkdf.expand(info, &mut key).map_err(|_| CryptoError::KeyDerivationFailed)?;
 
-    Ok(key)
+  Ok(key)
 }

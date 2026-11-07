@@ -16,6 +16,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   format:
@@ -23,9 +24,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
-      - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions/checkout@v5
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
       - name: Check formatting
@@ -44,7 +45,7 @@ jobs:
             args: --all-features
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Cargo artifacts
@@ -59,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -74,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Cargo artifacts
@@ -93,7 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Cargo artifacts
@@ -101,7 +102,7 @@ jobs:
       - name: Validate package contents
         run: cargo package --no-verify
       - name: Upload crate archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: crate-package
           path: target/package/*.crate
