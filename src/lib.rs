@@ -13,4 +13,5 @@ pub mod value;
 
 pub use error::{Error, ErrorKind, Position, Result};
 pub use file::{CbrFile, Options};
+pub use parser::ParseLimits;
 pub use value::Value;

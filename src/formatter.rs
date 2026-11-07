@@ -46,7 +46,9 @@ const INDENT_WIDTH: usize = 4;
 ///
 /// # Ok::<(), ciber_cbr::error::Error>(())
 /// ```
-pub fn to_string(value: &Value) -> Result<String> { format_value(value, false) }
+pub fn to_string(value: &Value) -> Result<String> {
+  format_to_string(value, false)
+}
 
 /// Formats a value using pretty-print CBR notation.
 ///
@@ -72,15 +74,17 @@ pub fn to_string(value: &Value) -> Result<String> { format_value(value, false) }
 /// # Ok::<(), ciber_cbr::error::Error>(())
 /// ```
 pub fn to_string_pretty(value: &Value) -> Result<String> {
-  format_value(value, true)
+  format_to_string(value, true)
 }
 
 /// Writes a value using compact CBR notation.
 ///
 /// # Errors
 ///
-/// Returns an error if formatting fails or if writing to the
-/// supplied writer fails.
+/// Streams formatted fragments directly to the supplied writer without
+/// allocating a complete intermediate document string.
+///
+/// Returns an error if formatting fails or if writing to the supplied writer fails.
 ///
 /// # Examples
 ///
@@ -95,22 +99,21 @@ pub fn to_string_pretty(value: &Value) -> Result<String> {
 ///
 /// # Ok::<(), ciber_cbr::error::Error>(())
 /// ```
-pub fn to_writer<W>(value: &Value, mut writer: W) -> Result<()>
+pub fn to_writer<W>(value: &Value, writer: W) -> Result<()>
 where
   W: Write,
 {
-  let output = to_string(value)?;
-  writer.write_all(output.as_bytes())?;
-
-  Ok(())
+  format_to_writer(value, writer, false)
 }
 
 /// Writes a value using pretty-print CBR notation.
 ///
 /// # Errors
 ///
-/// Returns an error if formatting fails or if writing to the
-/// supplied writer fails.
+/// Streams pretty-formatted fragments directly to the supplied writer without
+/// allocating a complete intermediate document string.
+///
+/// Returns an error if formatting fails or if writing to the supplied writer fails.
 ///
 /// # Examples
 ///
@@ -125,20 +128,26 @@ where
 ///
 /// # Ok::<(), ciber_cbr::error::Error>(())
 /// ```
-pub fn to_writer_pretty<W>(value: &Value, mut writer: W) -> Result<()>
+pub fn to_writer_pretty<W>(value: &Value, writer: W) -> Result<()>
 where
   W: Write,
 {
-  let output = to_string_pretty(value)?;
-  writer.write_all(output.as_bytes())?;
-
-  Ok(())
+  format_to_writer(value, writer, true)
 }
 
-/// Formats a value using the selected formatting mode.
-fn format_value(value: &Value, pretty: bool) -> Result<String> {
-  let mut output = String::new();
+fn format_to_string(value: &Value, pretty: bool) -> Result<String> {
+  let mut bytes = Vec::new();
+  format_to_writer(value, &mut bytes, pretty)?;
+  String::from_utf8(bytes)
+    .map_err(|_| formatting_error("formatter emitted invalid UTF-8"))
+}
 
+/// Emits formatting fragments directly to the destination.
+fn format_to_writer<W: Write>(
+  value: &Value,
+  mut output: W,
+  pretty: bool,
+) -> Result<()> {
   match value {
     Value::Object(values) => {
       write_object_contents(values, &mut output, pretty, 0)?;
@@ -149,27 +158,27 @@ fn format_value(value: &Value, pretty: bool) -> Result<String> {
     }
   }
 
-  Ok(output)
+  Ok(())
 }
 
 /// Writes a value into the output buffer.
 fn write_value(
   value: &Value,
-  output: &mut String,
+  output: &mut impl Write,
   pretty: bool,
   depth: usize,
 ) -> Result<()> {
   match value {
-    Value::Null => output.push_str("null"),
+    Value::Null => output.write_all(b"null")?,
 
     Value::Bool(value) => {
-      output.push_str(if *value { "true" } else { "false" });
+      output.write_all(if *value { b"true" } else { b"false" })?;
     }
 
-    Value::I64(value) => output.push_str(&value.to_string()),
-    Value::U64(value) => output.push_str(&value.to_string()),
-    Value::I128(value) => output.push_str(&value.to_string()),
-    Value::U128(value) => output.push_str(&value.to_string()),
+    Value::I64(value) => write!(output, "{value}")?,
+    Value::U64(value) => write!(output, "{value}")?,
+    Value::I128(value) => write!(output, "{value}")?,
+    Value::U128(value) => write!(output, "{value}")?,
 
     Value::F64(value) => {
       write_float(*value, output)?;
@@ -208,7 +217,7 @@ fn write_value(
 ///
 /// Integral floating-point values receive a decimal suffix
 /// to preserve their floating-point interpretation.
-fn write_float(value: f64, output: &mut String) -> Result<()> {
+fn write_float(value: f64, output: &mut impl Write) -> Result<()> {
   if !value.is_finite() {
     return Err(formatting_error(
       "Non-finite floating-point values are not supported",
@@ -221,23 +230,23 @@ fn write_float(value: f64, output: &mut String) -> Result<()> {
     formatted.push_str(".0");
   }
 
-  output.push_str(&formatted);
+  output.write_all(formatted.as_bytes())?;
 
   Ok(())
 }
 
 /// Writes a quoted and escaped string.
-fn write_string(value: &str, output: &mut String) -> Result<()> {
-  output.push('"');
+fn write_string(value: &str, output: &mut impl Write) -> Result<()> {
+  output.write_all(b"\"")?;
 
   for character in value.chars() {
     match character {
-      '"' => output.push_str("\\\""),
-      '\\' => output.push_str("\\\\"),
-      '\n' => output.push_str("\\n"),
-      '\r' => output.push_str("\\r"),
-      '\t' => output.push_str("\\t"),
-      '\0' => output.push_str("\\0"),
+      '"' => output.write_all(b"\\\"")?,
+      '\\' => output.write_all(b"\\\\")?,
+      '\n' => output.write_all(b"\\n")?,
+      '\r' => output.write_all(b"\\r")?,
+      '\t' => output.write_all(b"\\t")?,
+      '\0' => output.write_all(b"\\0")?,
 
       character if character.is_control() => {
         return Err(formatting_error(
@@ -245,11 +254,14 @@ fn write_string(value: &str, output: &mut String) -> Result<()> {
         ));
       }
 
-      character => output.push(character),
+      character => {
+        let mut encoded = [0; 4];
+        output.write_all(character.encode_utf8(&mut encoded).as_bytes())?;
+      }
     }
   }
 
-  output.push('"');
+  output.write_all(b"\"")?;
 
   Ok(())
 }
@@ -257,41 +269,41 @@ fn write_string(value: &str, output: &mut String) -> Result<()> {
 /// Writes an array.
 fn write_array(
   values: &[Value],
-  output: &mut String,
+  output: &mut impl Write,
   pretty: bool,
   depth: usize,
 ) -> Result<()> {
-  output.push('[');
+  output.write_all(b"[")?;
 
   if !values.is_empty() {
     if pretty {
-      output.push('\n');
+      output.write_all(b"\n")?;
     }
 
     for (index, value) in values.iter().enumerate() {
       if pretty {
-        write_indent(output, depth + 1);
+        write_indent(output, depth + 1)?;
       }
 
       write_value(value, output, pretty, depth + 1)?;
 
       if index + 1 < values.len() {
-        output.push(',');
+        output.write_all(b",")?;
       }
 
       if pretty {
-        output.push('\n');
+        output.write_all(b"\n")?;
       } else if index + 1 < values.len() {
-        output.push(' ');
+        output.write_all(b" ")?;
       }
     }
 
     if pretty {
-      write_indent(output, depth);
+      write_indent(output, depth)?;
     }
   }
 
-  output.push(']');
+  output.write_all(b"]")?;
 
   Ok(())
 }
@@ -299,40 +311,40 @@ fn write_array(
 /// Writes an object without enclosing delimiters.
 fn write_object_contents(
   values: &std::collections::BTreeMap<String, Value>,
-  output: &mut String,
+  output: &mut impl Write,
   pretty: bool,
   depth: usize,
 ) -> Result<()> {
   if !values.is_empty() {
     if pretty {
-      output.push('\n');
+      output.write_all(b"\n")?;
     }
 
     for (index, (key, value)) in values.iter().enumerate() {
       validate_identifier(key)?;
 
       if pretty {
-        write_indent(output, depth + 1);
+        write_indent(output, depth + 1)?;
       }
 
-      output.push_str(key);
-      output.push_str(" = ");
+      output.write_all(key.as_bytes())?;
+      output.write_all(b" = ")?;
 
       write_value(value, output, pretty, depth + 1)?;
 
       if index + 1 < values.len() {
-        output.push(',');
+        output.write_all(b",")?;
       }
 
       if pretty {
-        output.push('\n');
+        output.write_all(b"\n")?;
       } else if index + 1 < values.len() {
-        output.push(' ');
+        output.write_all(b" ")?;
       }
     }
 
     if pretty {
-      write_indent(output, depth);
+      write_indent(output, depth)?;
     }
   }
 
@@ -342,15 +354,15 @@ fn write_object_contents(
 /// Writes a nested object enclosed in parentheses.
 fn write_object(
   values: &std::collections::BTreeMap<String, Value>,
-  output: &mut String,
+  output: &mut impl Write,
   pretty: bool,
   depth: usize,
 ) -> Result<()> {
-  output.push('(');
+  output.write_all(b"(")?;
 
   write_object_contents(values, output, pretty, depth)?;
 
-  output.push(')');
+  output.write_all(b")")?;
 
   Ok(())
 }
@@ -358,48 +370,56 @@ fn write_object(
 /// Writes a set.
 fn write_set(
   values: &std::collections::BTreeSet<Value>,
-  output: &mut String,
+  output: &mut impl Write,
   pretty: bool,
   depth: usize,
 ) -> Result<()> {
-  output.push('{');
+  output.write_all(b"{")?;
 
   if !values.is_empty() {
     if pretty {
-      output.push('\n');
+      output.write_all(b"\n")?;
     }
 
     for (index, value) in values.iter().enumerate() {
       if pretty {
-        write_indent(output, depth + 1);
+        write_indent(output, depth + 1)?;
       }
 
       write_value(value, output, pretty, depth + 1)?;
 
       if index + 1 < values.len() {
-        output.push(',');
+        output.write_all(b",")?;
       }
 
       if pretty {
-        output.push('\n');
+        output.write_all(b"\n")?;
       } else if index + 1 < values.len() {
-        output.push(' ');
+        output.write_all(b" ")?;
       }
     }
 
     if pretty {
-      write_indent(output, depth);
+      write_indent(output, depth)?;
     }
   }
 
-  output.push('}');
+  output.write_all(b"}")?;
 
   Ok(())
 }
 
 /// Writes indentation for the specified nesting depth.
-fn write_indent(output: &mut String, depth: usize) {
-  output.push_str(&" ".repeat(depth * INDENT_WIDTH));
+fn write_indent(output: &mut impl Write, depth: usize) -> Result<()> {
+  const SPACES: &[u8; 64] =
+    b"                                                                ";
+  let mut remaining = depth.saturating_mul(INDENT_WIDTH);
+  while remaining > 0 {
+    let count = remaining.min(SPACES.len());
+    output.write_all(&SPACES[..count])?;
+    remaining -= count;
+  }
+  Ok(())
 }
 
 /// Validates an identifier according to the CBR lexer rules.

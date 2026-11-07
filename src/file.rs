@@ -24,7 +24,11 @@ use std::{
 };
 
 use crate::{
-  Error, error::Result, formatter, lexer::tokenize, parser::Parser,
+  Error,
+  error::Result,
+  formatter,
+  lexer::tokenize_with_limit,
+  parser::{ParseLimits, Parser},
   value::Value,
 };
 
@@ -109,8 +113,14 @@ impl CbrFile {
   ///
   /// Returns an error when `enabled` is `true` and the crate was built without
   /// the `crypto` feature.
-  #[cfg(not(feature = "crypto"))]
+  #[allow(clippy::missing_const_for_fn)] // Error construction is not const on the no-crypto path.
   pub fn set_crypto(&mut self, enabled: bool) -> Result<()> {
+    #[cfg(not(feature = "crypto"))]
+    if enabled {
+      return Err(Error::invalid_value(
+        "Crypto option requires the `crypto` feature",
+      ));
+    }
     self.options.crypto = enabled;
     Ok(())
   }
@@ -203,11 +213,46 @@ impl CbrFile {
   /// # Ok::<(), ciber_cbr::Error>(())
   /// ```
   pub fn from_reader<R: Read>(mut reader: R) -> Result<Self> {
+    Self::from_reader_with_limits(&mut reader, ParseLimits::default())
+  }
+
+  /// Reads and parses a document with explicit resource limits.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if reading fails, input exceeds its byte limit, or parsing fails.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if reading fails, input exceeds the byte limit, or parsing fails.
+  pub fn from_reader_with_limits<R: Read>(
+    reader: R,
+    limits: ParseLimits,
+  ) -> Result<Self> {
+    let max_bytes = limits.max_input_bytes;
     let mut content = String::new();
+    reader
+      .take(max_bytes.saturating_add(1) as u64)
+      .read_to_string(&mut content)?;
+    if content.len() > max_bytes {
+      return Err(Error::invalid_value("maximum input size exceeded"));
+    }
+    Self::parse_with_limits(&content, limits)
+  }
 
-    reader.read_to_string(&mut content)?;
-
-    content.parse()
+  /// Parses source text using explicit resource limits.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if input exceeds a configured limit or contains invalid CBR.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if input exceeds a configured limit or contains invalid CBR.
+  pub fn parse_with_limits(source: &str, limits: ParseLimits) -> Result<Self> {
+    let tokens = tokenize_with_limit(source, limits.max_input_bytes)?;
+    let mut parser = Parser::with_limits(tokens, limits)?;
+    Ok(Self::from_value(parser.parse()?))
   }
 
   /// Opens and parses a CBR document from a file.
@@ -279,6 +324,11 @@ impl CbrFile {
   /// Returns an error if the file cannot be created or the document
   /// cannot be formatted or written.
   pub fn save_pretty(&self, path: impl AsRef<Path>) -> Result<()> {
+    if self.options.crypto {
+      return Err(Error::invalid_value(
+        "Crypto saving requires an explicit key; use save_encrypted",
+      ));
+    }
     let file = File::create(path)?;
 
     self.write_pretty_to(file)
@@ -343,10 +393,6 @@ impl FromStr for CbrFile {
   /// # Ok::<(), ciber_cbr::error::Error>(())
   /// ```
   fn from_str(content: &str) -> std::result::Result<Self, Self::Err> {
-    let tokens = tokenize(content)?;
-    let mut parser = Parser::new(tokens);
-    let value = parser.parse()?;
-
-    Ok(Self::from_value(value))
+    Self::parse_with_limits(content, ParseLimits::default())
   }
 }

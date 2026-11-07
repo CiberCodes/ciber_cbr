@@ -55,6 +55,12 @@ The core library does not implement the CBR Serde serializer or deserializer. Th
 
 ## 🚀 Quick Start
 
+Parsing APIs use `ParseLimits::default()` by default: 16 MiB maximum input,
+128 nested containers, 100,000 elements per array or set, and 1 MiB per decoded
+string (UTF-8 bytes). Use `CbrFile::parse_with_limits` or
+`CbrFile::from_reader_with_limits` to choose other limits. A zero limit forbids
+the corresponding resource.
+
 ### Parsing a CBR document
 
 ```rust
@@ -139,6 +145,8 @@ The repository includes examples and integration tests covering the core functio
 
 ## 📚 Documentation
 
+- [CBR format specification](docs/specification/grammar.md)
+- [Benchmark instructions and methodology](benches/README.md)
 - [API documentation on docs.rs](https://docs.rs/ciber_cbr)
 - [Crates.io package](https://crates.io/crates/ciber_cbr)
 - [GitHub repository](https://github.com/CiberCodes/ciber_cbr)

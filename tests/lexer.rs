@@ -8,6 +8,12 @@ use std::error::Error as StdError;
 
 use ciber_cbr::lexer::{Token, TokenKind, tokenize};
 
+#[test]
+fn tokenizer_rejects_input_over_default_limit() {
+  let input = "x".repeat(ciber_cbr::lexer::DEFAULT_MAX_INPUT_BYTES + 1);
+  assert!(tokenize(&input).is_err());
+}
+
 /// Tokenizes the source and returns its token kinds.
 fn token_kinds(source: &str) -> Result<Vec<TokenKind>, Box<dyn StdError>> {
   Ok(tokenize(source)?.into_iter().map(|token| token.kind().clone()).collect())

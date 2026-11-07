@@ -3,7 +3,10 @@
 //! These tests verify primitive values, collections, nested structures,
 //! deterministic output, pretty formatting, and parser compatibility.
 
-use std::collections::BTreeSet;
+use std::{
+  collections::BTreeSet,
+  io::{self, Write},
+};
 
 use ciber_cbr::{
   Result, formatter, lexer::tokenize, parser::Parser, value::Value,
@@ -251,6 +254,33 @@ fn writes_pretty_output() -> Result<()> {
   assert_eq!(output, b"[\n    1,\n    2\n]");
 
   Ok(())
+}
+
+struct FailingWriter {
+  remaining: usize,
+}
+
+impl Write for FailingWriter {
+  fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+    if self.remaining == 0 {
+      return Err(io::Error::other("writer failed"));
+    }
+    let written = self.remaining.min(bytes.len());
+    self.remaining -= written;
+    Ok(written)
+  }
+
+  fn flush(&mut self) -> io::Result<()> { Ok(()) }
+}
+
+#[test]
+fn writer_errors_are_propagated_after_incremental_output() {
+  let value = Value::Array(vec![
+    Value::String("first".into()),
+    Value::String("second".into()),
+  ]);
+  let result = formatter::to_writer(&value, FailingWriter { remaining: 7 });
+  assert!(result.is_err());
 }
 
 #[test]

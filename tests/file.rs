@@ -6,6 +6,7 @@ use std::{
   str::FromStr,
 };
 
+use ciber_cbr::ParseLimits;
 use ciber_cbr::{Value, file::CbrFile};
 
 #[test]
@@ -140,6 +141,89 @@ fn save_pretty_writes_formatted_document()
 
   fs::remove_file(path)?;
 
+  Ok(())
+}
+
+#[test]
+#[cfg(feature = "crypto")]
+fn save_pretty_refuses_plaintext_when_crypto_policy_is_enabled()
+-> Result<(), Box<dyn std::error::Error>> {
+  use std::fs;
+
+  let secret = "cbr-secret-regression-marker";
+  let document =
+    CbrFile::from_reader(Cursor::new(format!(r#"secret = "{secret}""#)))?;
+  let mut document = document;
+  document.set_crypto(true)?;
+  let path =
+    std::env::temp_dir().join("ciber_cbr_crypto_policy_pretty_test.cbr");
+  let _ = fs::remove_file(&path);
+
+  assert!(document.save_pretty(&path).is_err());
+  assert!(!path.exists());
+
+  Ok(())
+}
+
+#[test]
+#[cfg(not(feature = "crypto"))]
+fn crypto_policy_cannot_be_enabled_without_feature() {
+  let mut document = CbrFile::new();
+  let error = document.set_crypto(true).unwrap_err();
+  assert_eq!(error.kind(), ciber_cbr::ErrorKind::InvalidValue);
+  assert!(!document.options().crypto);
+}
+
+#[test]
+fn parse_limits_enforce_input_string_depth_and_collection_boundaries() {
+  let limits = ParseLimits {
+    max_input_bytes: 20,
+    max_depth: 2,
+    max_collection_items: 2,
+    max_string_bytes: 3,
+  };
+  assert!(CbrFile::parse_with_limits("x = [1, 2]", limits).is_ok());
+  assert!(CbrFile::parse_with_limits("x = [[1]]", limits).is_ok());
+  assert!(CbrFile::parse_with_limits("x = [1, 2, 3]", limits).is_err());
+  assert!(CbrFile::parse_with_limits("x = [[[1]]]", limits).is_err());
+  assert!(CbrFile::parse_with_limits("x = \"four\"", limits).is_err());
+  assert!(CbrFile::parse_with_limits("x = \"éé\"", limits).is_err());
+  assert!(
+    CbrFile::parse_with_limits("x = (a = 1, b = 2, c = 3)", limits).is_err()
+  );
+  assert!(
+    CbrFile::parse_with_limits("x = 12345678901234567890", limits).is_err()
+  );
+}
+
+#[test]
+fn reader_enforces_input_limit_before_unbounded_read() {
+  let limits = ParseLimits { max_input_bytes: 5, ..ParseLimits::default() };
+  assert!(
+    CbrFile::from_reader_with_limits(Cursor::new("name = 1"), limits).is_err()
+  );
+}
+
+#[test]
+#[cfg(feature = "crypto")]
+fn encrypted_save_round_trips_document_without_plaintext_leakage()
+-> Result<(), Box<dyn std::error::Error>> {
+  use std::fs;
+
+  let secret = "cbr-encrypted-secret-marker";
+  let mut document =
+    CbrFile::from_reader(Cursor::new(format!(r#"secret = "{secret}""#)))?;
+  document.set_crypto(true)?;
+  let key = ciber_cbr::crypto::generate_key()?;
+  let path = std::env::temp_dir().join("ciber_cbr_encrypted_save_test.cbr");
+  document.save_encrypted(&path, &key, b"file-test")?;
+
+  let ciphertext = fs::read(&path)?;
+  assert!(!ciphertext.windows(secret.len()).any(|w| w == secret.as_bytes()));
+  let plaintext = ciber_cbr::crypto::decrypt(&key, &ciphertext, b"file-test")?;
+  assert!(String::from_utf8(plaintext)?.contains(secret));
+
+  fs::remove_file(path)?;
   Ok(())
 }
 

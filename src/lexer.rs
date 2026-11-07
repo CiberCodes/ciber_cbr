@@ -48,6 +48,9 @@
 
 use crate::error::{Error, Position, Result};
 
+/// Default maximum CBR source size, in bytes, accepted by [`tokenize`].
+pub const DEFAULT_MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
+
 /// Represents a lexical token recognized in a CBR document.
 ///
 /// A token consists of a [`TokenKind`] and its starting
@@ -642,5 +645,20 @@ impl Lexer {
 /// # Ok::<(), ciber_cbr::Error>(())
 /// ```
 pub fn tokenize(source: &str) -> Result<Vec<Token>> {
+  tokenize_with_limit(source, DEFAULT_MAX_INPUT_BYTES)
+}
+
+/// Tokenizes a source string after enforcing a byte-size limit.
+///
+/// # Errors
+///
+/// Returns an error if the input exceeds `max_input_bytes` or is invalid CBR.
+pub fn tokenize_with_limit(
+  source: &str,
+  max_input_bytes: usize,
+) -> Result<Vec<Token>> {
+  if source.len() > max_input_bytes {
+    return Err(Error::invalid_value("maximum input size exceeded"));
+  }
   Lexer::new(source).tokenize()
 }

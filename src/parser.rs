@@ -40,6 +40,36 @@ use crate::{
 pub struct Parser {
   tokens: Vec<Token>,
   current: usize,
+  limits: ParseLimits,
+  depth: usize,
+}
+
+/// Resource limits applied while parsing CBR documents.
+///
+/// Defaults allow inputs up to 16 MiB, nesting up to 128 containers, at most
+/// 100,000 items per collection, and strings up to 1 MiB (UTF-8 bytes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ParseLimits {
+  /// Maximum encoded input size in bytes.
+  pub max_input_bytes: usize,
+  /// Maximum nested container depth.
+  pub max_depth: usize,
+  /// Maximum number of items in an individual collection.
+  pub max_collection_items: usize,
+  /// Maximum decoded string size in UTF-8 bytes.
+  pub max_string_bytes: usize,
+}
+
+impl Default for ParseLimits {
+  fn default() -> Self {
+    Self {
+      max_input_bytes: 16 * 1024 * 1024,
+      max_depth: 128,
+      max_collection_items: 100_000,
+      max_string_bytes: 1024 * 1024,
+    }
+  }
 }
 
 impl Parser {
@@ -64,7 +94,7 @@ impl Parser {
       "token stream must end with an EOF token",
     );
 
-    Self { tokens, current: 0 }
+    Self { tokens, current: 0, limits: ParseLimits::default(), depth: 0 }
   }
 
   /// Creates a parser from a token stream, returning an error for an invalid stream.
@@ -77,10 +107,24 @@ impl Parser {
   /// Returns an error if the token stream is empty or does not end with EOF.
   pub fn try_new(tokens: Vec<Token>) -> Result<Self> {
     if matches!(tokens.last().map(Token::kind), Some(TokenKind::Eof)) {
-      Ok(Self { tokens, current: 0 })
+      Ok(Self { tokens, current: 0, limits: ParseLimits::default(), depth: 0 })
     } else {
       Err(Error::invalid_value("Token stream must end with an EOF token"))
     }
+  }
+
+  /// Creates a parser using caller supplied resource limits.
+  ///
+  /// The input byte limit applies when parsing source through `CbrFile` APIs;
+  /// a prebuilt token vector no longer contains the original byte length.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the token stream is empty or does not end with EOF.
+  pub fn with_limits(tokens: Vec<Token>, limits: ParseLimits) -> Result<Self> {
+    let mut parser = Self::try_new(tokens)?;
+    parser.limits = limits;
+    Ok(parser)
   }
 
   /// Returns a reference to the current token without consuming it.
@@ -191,6 +235,7 @@ impl Parser {
     self.consume(&TokenKind::LeftParen, "Expected '(' to start an object")?;
 
     let mut object = Value::empty_object();
+    let mut property_count = 0usize;
 
     self.skip_newlines();
 
@@ -200,6 +245,10 @@ impl Parser {
       }
 
       let (key, value) = self.parse_property()?;
+      if property_count >= self.limits.max_collection_items {
+        return Err(self.limit_error("collection item limit exceeded"));
+      }
+      property_count += 1;
 
       if let Err(value) = object.insert(key, value) {
         return Err(
@@ -273,6 +322,9 @@ impl Parser {
         return Err(self.syntax_error("Unterminated array"));
       }
 
+      if array.len() >= self.limits.max_collection_items {
+        return Err(self.limit_error("collection item limit exceeded"));
+      }
       array.push(self.parse_value()?);
 
       if self.check(&TokenKind::RightBracket) {
@@ -301,6 +353,7 @@ impl Parser {
     self.consume(&TokenKind::LeftBrace, "Expected '{' to start a set")?;
 
     let mut set = BTreeSet::new();
+    let mut item_count = 0usize;
 
     self.skip_newlines();
 
@@ -309,7 +362,11 @@ impl Parser {
         return Err(self.syntax_error("Unterminated set"));
       }
 
+      if item_count >= self.limits.max_collection_items {
+        return Err(self.limit_error("collection item limit exceeded"));
+      }
       set.insert(self.parse_value()?);
+      item_count += 1;
 
       if self.check(&TokenKind::RightBrace) {
         break;
@@ -371,7 +428,17 @@ impl Parser {
   ///
   /// Returns an error if the current token cannot begin a valid value.
   fn parse_value(&mut self) -> Result<Value> {
-    match self.peek().kind() {
+    let is_container = matches!(
+      self.peek().kind(),
+      TokenKind::LeftParen | TokenKind::LeftBracket | TokenKind::LeftBrace
+    );
+    if is_container && self.depth >= self.limits.max_depth {
+      return Err(self.limit_error("maximum nesting depth exceeded"));
+    }
+    if is_container {
+      self.depth += 1;
+    }
+    let result = match self.peek().kind() {
       TokenKind::Null => {
         self.advance();
         Ok(Value::Null)
@@ -382,6 +449,9 @@ impl Parser {
         Ok(Value::Bool(value))
       }
       TokenKind::String(value) => {
+        if value.len() > self.limits.max_string_bytes {
+          return Err(self.limit_error("maximum string size exceeded"));
+        }
         let value = value.clone();
         self.advance();
         Ok(Value::String(value))
@@ -398,7 +468,15 @@ impl Parser {
       TokenKind::LeftBracket => self.parse_array(),
       TokenKind::LeftBrace => self.parse_set(),
       _ => Err(self.syntax_error("Expected a value")),
+    };
+    if is_container {
+      self.depth -= 1;
     }
+    result
+  }
+
+  fn limit_error(&self, message: &str) -> Error {
+    Error::invalid_value(message).with_position(self.peek().position())
   }
 
   /// Parses a document property.
@@ -469,11 +547,16 @@ impl Parser {
   /// Returns an error if the document contains invalid syntax.
   pub fn parse(&mut self) -> Result<Value> {
     let mut object = Value::empty_object();
+    let mut property_count = 0usize;
 
     self.skip_newlines();
 
     while !self.is_at_end() {
       let (key, value) = self.parse_property()?;
+      if property_count >= self.limits.max_collection_items {
+        return Err(self.limit_error("collection item limit exceeded"));
+      }
+      property_count += 1;
 
       if let Err(value) = object.insert(key, value) {
         return Err(
